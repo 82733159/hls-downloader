@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>HLS Downloader</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#0d0f14;color:#e2e8f0;font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+  .wrap{width:100%;max-width:520px}
+  .header{display:flex;align-items:center;gap:12px;margin-bottom:28px}
+  .icon{width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,#4f7fff,#7c3aed);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0}
+  .title{font-size:20px;font-weight:700;letter-spacing:-.3px}
+  .sub{font-size:12px;color:#64748b;margin-top:2px}
+  .card{background:#161b27;border:1px solid #1e2535;border-radius:16px;padding:24px;box-shadow:0 20px 60px #00000060}
+  label{display:block;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#64748b;margin-bottom:6px}
+  input[type=text]{width:100%;background:#0d0f14;border:1px solid #1e2535;border-radius:8px;padding:11px 14px;color:#e2e8f0;font-family:'Courier New',monospace;font-size:12.5px;outline:none;transition:border-color .2s}
+  input[type=text]:focus{border-color:#4f7fff;box-shadow:0 0 0 2px #4f7fff22}
+  input[type=text]:disabled{opacity:.5}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:16px}
+  .field{margin-top:16px}
+  input[type=range]{width:100%;margin-top:8px;accent-color:#4f7fff}
+  .btn{display:block;width:100%;margin-top:20px;padding:13px;border:none;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;transition:opacity .15s,transform .1s}
+  .btn:active{transform:scale(.98)}
+  .btn-primary{background:linear-gradient(135deg,#4f7fff,#7c3aed);color:#fff}
+  .btn-cancel{background:transparent;border:1px solid #1e2535;color:#94a3b8;margin-top:10px}
+  .btn-cancel:hover{border-color:#4f7fff44;color:#e2e8f0}
+  .btn:disabled{opacity:.4;cursor:not-allowed}
+  .progress-wrap{margin-top:20px;display:none}
+  .status-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+  .status-msg{font-size:13px;display:flex;align-items:center;gap:8px;flex:1;min-width:0}
+  .status-msg span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .spinner{width:14px;height:14px;border:2px solid #4f7fff;border-top-color:transparent;border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .seg-count{font-size:12px;color:#64748b;font-variant-numeric:tabular-nums;font-family:monospace;flex-shrink:0;margin-left:8px}
+  .bar-bg{height:5px;background:#1e2535;border-radius:99px;overflow:hidden}
+  .bar-fill{height:100%;border-radius:99px;transition:width .3s;background:linear-gradient(90deg,#4f7fff,#7c3aed);width:0%}
+  .bar-fill.done{background:#22c55e}
+  .bar-fill.err{background:#ef4444}
+  .log{margin-top:12px;background:#0d0f14;border:1px solid #1e2535;border-radius:8px;padding:10px 12px;max-height:130px;overflow-y:auto;font-family:'Courier New',monospace;font-size:11px;line-height:1.6}
+  .log-info{color:#64748b}
+  .log-ok{color:#22c55e}
+  .log-warn{color:#f59e0b}
+  .log-err{color:#ef4444}
+  .note{margin-top:14px;background:#161b27;border:1px solid #1e2535;border-radius:10px;padding:12px 14px;font-size:12px;color:#64748b;line-height:1.6}
+  .note strong{color:#94a3b8}
+  code{font-family:'Courier New',monospace;background:#0d0f14;padding:1px 5px;border-radius:4px;font-size:11px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="header">
+    <div class="icon">&#11015;</div>
+    <div>
+      <div class="title">HLS Downloader</div>
+      <div class="sub">m3u8 &rarr; file &nbsp;&middot;&nbsp; parallel &nbsp;&middot;&nbsp; browser-native</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <label for="urlInput">Stream URL (m3u8)</label>
+    <input type="text" id="urlInput" placeholder="https://example.com/stream/master.m3u8" spellcheck="false" autocomplete="off"/>
+
+    <div class="row">
+      <div>
+        <label for="fnInput">Filename (ext. auto)</label>
+        <input type="text" id="fnInput" value="video"/>
+      </div>
+      <div>
+        <label id="concLabel">Parallel (10x)</label>
+        <input type="range" id="concInput" min="1" max="20" value="10" oninput="document.getElementById('concLabel').textContent='Parallel ('+this.value+'x)'"/>
+      </div>
+    </div>
+
+    <button class="btn btn-primary" id="startBtn" onclick="startDownload()">&#11015; Download</button>
+    <button class="btn btn-cancel" id="cancelBtn" style="display:none" onclick="cancelDownload()">&#10005; Cancel</button>
+
+    <div class="progress-wrap" id="progressWrap">
+      <div class="status-row">
+        <div class="status-msg"><div class="spinner" id="spinner"></div><span id="statusText">Starting...</span></div>
+        <div class="seg-count" id="segCount"></div>
+      </div>
+      <div class="bar-bg"><div class="bar-fill" id="barFill"></div></div>
+      <div class="log" id="logBox"></div>
+    </div>
+  </div>
+
+  <div class="note">
+    <strong>Output format:</strong> auto-detected &mdash; saved as <code>.mp4</code> if the stream has video,
+    or <code>.mp3</code> if it's audio-only. Merging/encoding runs in-browser via <code>ffmpeg.wasm</code>.
+    Set <strong>Parallel</strong> higher for faster segment downloads (up to 20x).
+    CORS must be allowed by the stream server.
+  </div>
+</div>
+
+<!-- ffmpeg.wasm (single-thread, no SharedArrayBuffer required) -->
+<script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.6/dist/umd/ffmpeg.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/dist/umd/index.js"></script>
+
+<script>
+const { FFmpeg } = FFmpegWASM;
+const { toBlobURL } = FFmpegUtil;
+
+var aborted = false;
+var ffmpeg = null;
+var detectedHasVideo = false;
+
+// ── Patch Worker construction ───────────────────────────────────────────────
+// Some mobile browsers give local files (content://, file://) a null/opaque
+// origin, which blocks `new Worker(crossOriginURL)` outright. Wrapping the
+// script in a blob: URL that just does importScripts(...) sidesteps that,
+// since blob: URLs are always same-origin and importScripts() itself isn't
+// subject to the same restriction.
+if (!window.__workerPatched) {
+  window.__workerPatched = true;
+  var NativeWorker = window.Worker;
+  window.Worker = function(scriptURL, options) {
+    var urlStr = (scriptURL && scriptURL.toString) ? scriptURL.toString() : String(scriptURL);
+    if (urlStr.indexOf('blob:') !== 0 && urlStr.indexOf('data:') !== 0) {
+      var wrapper = new Blob(['importScripts(' + JSON.stringify(urlStr) + ');'], {type: 'text/javascript'});
+      var wrapperURL = URL.createObjectURL(wrapper);
+      return new NativeWorker(wrapperURL, options);
+    }
+    return new NativeWorker(scriptURL, options);
+  };
+}
+
+function errMsg(e) {
+  if (!e) return 'Unknown error (no details provided)';
+  if (typeof e === 'string') return e;
+  if (e.message) return e.message;
+  try { return JSON.stringify(e); } catch(_) { return String(e); }
+}
+
+function withTimeout(promise, ms, message) {
+  return Promise.race([
+    promise,
+    new Promise(function(_, reject) { setTimeout(function(){ reject(new Error(message)); }, ms); })
+  ]);
+}
+
+function addLog(text, type) {
+  var box = document.getElementById('logBox');
+  var d = document.createElement('div');
+  d.className = 'log-' + (type || 'info');
+  d.textContent = text;
+  box.appendChild(d);
+  if (box.children.length > 100) box.removeChild(box.children[0]);
+  box.scrollTop = box.scrollHeight;
+}
+
+function setStatus(text, state) {
+  document.getElementById('statusText').textContent = text;
+  var spinner = document.getElementById('spinner');
+  var bar = document.getElementById('barFill');
+  if (state === 'done') { spinner.style.display='none'; bar.className='bar-fill done'; }
+  else if (state === 'err') { spinner.style.display='none'; bar.className='bar-fill err'; }
+  else { spinner.style.display=''; bar.className='bar-fill'; }
+}
+
+function setBar(done, total) {
+  var pct = total > 0 ? Math.round(done/total*100) : 0;
+  document.getElementById('barFill').style.width = pct + '%';
+  document.getElementById('segCount').textContent = done + ' / ' + total;
+}
+
+function setRunning(running) {
+  document.getElementById('startBtn').style.display = running ? 'none' : 'block';
+  document.getElementById('cancelBtn').style.display = running ? 'block' : 'none';
+  document.getElementById('urlInput').disabled = running;
+  document.getElementById('fnInput').disabled = running;
+  document.getElementById('concInput').disabled = running;
+  document.getElementById('progressWrap').style.display = 'block';
+}
+
+function cancelDownload() {
+  aborted = true;
+  if (ffmpeg) {
+    try { ffmpeg.terminate(); } catch(e) {}
+    ffmpeg = null;
+  }
+  addLog('Cancelled.', 'warn');
+  setStatus('Cancelled', 'err');
+  setRunning(false);
+}
+
+function resolveUrl(base, rel) {
+  try { return new URL(rel, base).href; } catch(e) { return rel; }
+}
+
+function fetchText(url) {
+  return fetch(url).then(function(r) {
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.text();
+  });
+}
+
+function resolveBestVariant(url) {
+  return fetchText(url).then(function(text) {
+    var lines = text.split('\n').map(function(l){return l.trim();}).filter(Boolean);
+    if (!lines.some(function(l){return l.indexOf('#EXT-X-STREAM-INF') === 0;})) return url;
+    var bestBw = -1, bestUrl = '';
+    for (var i = 0; i < lines.length; i++) {
+      if (lines[i].indexOf('#EXT-X-STREAM-INF') === 0) {
+        var m = lines[i].match(/BANDWIDTH=(\d+)/);
+        var bw = m ? parseInt(m[1]) : 0;
+        var vu = resolveUrl(url, lines[i+1] || '');
+        if (bw > bestBw) { bestBw = bw; bestUrl = vu; }
+      }
+    }
+    if (bestBw > 0) addLog('Variant: ' + (bestBw/1e6).toFixed(1) + ' Mbps', 'info');
+    return bestUrl || url;
+  });
+}
+
+function parseSegments(mediaUrl) {
+  return fetchText(mediaUrl).then(function(text) {
+    var lines = text.split('\n').map(function(l){return l.trim();});
+    var segs = [];
+    var initUrl = null;
+    for (var i = 0; i < lines.length; i++) {
+      var l = lines[i];
+      if (!l) continue;
+      if (l.indexOf('#EXT-X-MAP') === 0) {
+        var m = l.match(/URI="([^"]+)"/);
+        if (m) initUrl = resolveUrl(mediaUrl, m[1]);
+        continue;
+      }
+      if (l.charAt(0) === '#') continue;
+      segs.push(resolveUrl(mediaUrl, l));
+    }
+    return { segments: segs, initUrl: initUrl };
+  });
+}
+
+function concatBuffers(buffers) {
+  var total = 0;
+  for (var i = 0; i < buffers.length; i++) total += buffers[i].byteLength;
+  var out = new Uint8Array(total);
+  var offset = 0;
+  for (var j = 0; j < buffers.length; j++) {
+    out.set(new Uint8Array(buffers[j]), offset);
+    offset += buffers[j].byteLength;
+  }
+  return out;
+}
+
+function fetchSegment(url, retries) {
+  retries = retries === undefined ? 2 : retries;
+  return fetch(url).then(function(r) {
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.arrayBuffer();
+  }).catch(function(e) {
+    if (retries > 0) {
+      return new Promise(function(res){setTimeout(res, 400);}).then(function(){
+        return fetchSegment(url, retries - 1);
+      });
+    }
+    throw e;
+  });
+}
+
+function parallelFetch(urls, concurrency, onDone) {
+  var results = new Array(urls.length).fill(null);
+  var next = 0, done = 0;
+  function worker() {
+    if (aborted || next >= urls.length) return Promise.resolve();
+    var i = next++;
+    return fetchSegment(urls[i]).then(function(buf) {
+      results[i] = buf;
+      done++;
+      onDone(done, buf.byteLength);
+    }).catch(function(e) {
+      addLog('Seg ' + i + ' failed: ' + errMsg(e), 'warn');
+      done++;
+      onDone(done, 0);
+    }).then(worker);
+  }
+  var workers = [];
+  for (var w = 0; w < Math.min(concurrency, urls.length); w++) workers.push(worker());
+  return Promise.all(workers).then(function(){ return results; });
+}
+
+async function startDownload() {
+  var url = document.getElementById('urlInput').value.trim();
+  var filenameBase = (document.getElementById('fnInput').value.trim() || 'video')
+    .replace(/\.(ts|mp4|mp3|mkv|m4a|aac)$/i, '');
+  var concurrency = parseInt(document.getElementById('concInput').value) || 10;
+  if (!url) { alert('Please enter a stream URL.'); return; }
+
+  aborted = false;
+  detectedHasVideo = false;
+  document.getElementById('logBox').innerHTML = '';
+  document.getElementById('barFill').style.width = '0%';
+  document.getElementById('barFill').className = 'bar-fill';
+  document.getElementById('segCount').textContent = '';
+  setRunning(true);
+  setStatus('Loading ffmpeg engine...');
+  addLog('URL: ' + url.split('?')[0].slice(-80), 'info');
+
+  var totalBytes = 0, speedBytes = 0, speedTime = Date.now();
+
+  try {
+    // ── Load ffmpeg.wasm ────────────────────────────────────────────────────
+    ffmpeg = new FFmpeg();
+    ffmpeg.on('log', function(evt) {
+      var message = evt.message;
+      if (message && /:\s*Video:/i.test(message)) detectedHasVideo = true;
+      if (message && message.indexOf('frame=') !== 0 && message.indexOf('size=') !== 0) {
+        addLog(message, 'info');
+      }
+    });
+    var baseURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd';
+    await withTimeout(ffmpeg.load({
+      coreURL: await toBlobURL(baseURL + '/ffmpeg-core.js', 'text/javascript'),
+      wasmURL: await toBlobURL(baseURL + '/ffmpeg-core.wasm', 'application/wasm'),
+    }), 45000, 'Timed out loading ffmpeg engine (45s) — check your network connection.');
+    addLog('ffmpeg.wasm loaded', 'ok');
+    if (aborted) return;
+
+    // ── Resolve variant + parse segment list ───────────────────────────────
+    setStatus('Fetching playlist...');
+    var mediaUrl = await resolveBestVariant(url);
+    addLog('Media: ' + mediaUrl.split('?')[0].slice(-70), 'info');
+    if (aborted) return;
+
+    setStatus('Parsing segments...');
+    var parsed = await parseSegments(mediaUrl);
+    var segments = parsed.segments;
+    var initUrl = parsed.initUrl;
+    if (!segments || segments.length === 0) throw new Error('No segments found in playlist.');
+    var isFmp4 = !!initUrl;
+    addLog('Found ' + segments.length + ' segments' + (isFmp4 ? ' (fMP4/CMAF, has init segment)' : '') + '. Downloading ' + concurrency + ' at a time...', 'info');
+    if (aborted) return;
+
+    var initBuffer = null;
+    if (isFmp4) {
+      setStatus('Fetching init segment...');
+      addLog('Init segment: ' + initUrl.split('?')[0].slice(-70), 'info');
+      initBuffer = await fetchSegment(initUrl);
+      if (aborted) return;
+    }
+
+    // ── Download segments in parallel ───────────────────────────────────────
+    var buffers = await parallelFetch(segments, concurrency, function(done, bytes) {
+      totalBytes += bytes;
+      speedBytes += bytes;
+      var now = Date.now();
+      var elapsed = (now - speedTime) / 1000;
+      var speedStr = '';
+      if (elapsed >= 0.5) {
+        var spd = speedBytes / elapsed;
+        speedStr = ' \u00b7 ' + (spd >= 1048576 ? (spd/1048576).toFixed(1)+' MB/s' : (spd/1024).toFixed(0)+' KB/s');
+        speedBytes = 0; speedTime = now;
+      }
+      setBar(done, segments.length);
+      setStatus(done + ' / ' + segments.length + ' \u00b7 ' + (totalBytes/1048576).toFixed(1) + ' MB' + speedStr);
+    });
+    if (aborted) return;
+
+    var validIdx = [];
+    for (var vi = 0; vi < buffers.length; vi++) if (buffers[vi]) validIdx.push(vi);
+    if (validIdx.length === 0) throw new Error('All segments failed.');
+
+    // ── Write segments into ffmpeg's virtual filesystem ─────────────────────
+    var segFiles = [];
+    var inputArg = [];
+    if (isFmp4) {
+      // fMP4/CMAF segments are headerless fragments (moof+mdat) that only make
+      // sense appended after the init segment's moov box. Byte-concat them
+      // into one continuous file rather than using the -f concat demuxer.
+      setStatus('Combining fMP4 init + segments...');
+      var allBuffers = [initBuffer];
+      for (var j = 0; j < validIdx.length; j++) allBuffers.push(buffers[validIdx[j]]);
+      var combined = concatBuffers(allBuffers);
+      await ffmpeg.writeFile('stream_input.mp4', combined);
+      segFiles.push('stream_input.mp4');
+      inputArg = ['-i', 'stream_input.mp4'];
+      addLog('Wrote combined fMP4 stream (' + validIdx.length + ' / ' + segments.length + ' segments, ' + (combined.byteLength/1048576).toFixed(1) + ' MB)', 'ok');
+    } else {
+      setStatus('Writing segments to ffmpeg...');
+      for (var j = 0; j < validIdx.length; j++) {
+        var idx = validIdx[j];
+        var segName = 'seg_' + String(j).padStart(5, '0') + '.ts';
+        await ffmpeg.writeFile(segName, new Uint8Array(buffers[idx]));
+        segFiles.push(segName);
+        if (aborted) return;
+      }
+      addLog('Wrote ' + segFiles.length + ' / ' + segments.length + ' segments', 'ok');
+      var concatList = segFiles.map(function(f){ return "file '" + f + "'"; }).join('\n');
+      await ffmpeg.writeFile('concat.txt', concatList);
+      inputArg = ['-f','concat','-safe','0','-i','concat.txt'];
+    }
+    if (aborted) return;
+
+    // ── Probe to detect video vs audio-only ──────────────────────────────────
+    setStatus('Detecting media type...');
+    try { await ffmpeg.exec(['-i', segFiles[0]]); } catch(e) { /* expected: no output given */ }
+    addLog(detectedHasVideo ? 'Video stream detected \u2192 MP4' : 'Audio-only \u2192 MP3', 'ok');
+    if (aborted) return;
+
+    // ── Merge (and transcode to MP3 if audio-only) ──────────────────────────
+    setStatus('Merging segments...');
+
+    var filename = filenameBase + (detectedHasVideo ? '.mp4' : '.mp3');
+    var mimeType = detectedHasVideo ? 'video/mp4' : 'audio/mpeg';
+
+    var exitCode;
+    if (detectedHasVideo) {
+      exitCode = await ffmpeg.exec(inputArg.concat(['-c','copy','-movflags','+faststart', filename]));
+    } else {
+      exitCode = await ffmpeg.exec(inputArg.concat(['-vn','-codec:a','libmp3lame','-q:a','2', filename]));
+      if (exitCode !== 0) {
+        addLog('MP3 encode failed (exit ' + exitCode + ') — retrying as a plain AAC remux instead...', 'warn');
+        try { await ffmpeg.deleteFile(filename); } catch(e) {}
+        filename = filenameBase + '.aac';
+        mimeType = 'audio/aac';
+        exitCode = await ffmpeg.exec(inputArg.concat(['-vn','-c:a','copy','-f','adts', filename]));
+      }
+    }
+    if (exitCode !== 0) {
+      throw new Error('ffmpeg exited with code ' + exitCode + ' while merging — check the log above for the specific ffmpeg error.');
+    }
+    if (aborted) return;
+
+    // ── Read output and trigger download ─────────────────────────────────────
+    setStatus('Finalising...');
+    var outputData;
+    try {
+      outputData = await ffmpeg.readFile(filename);
+    } catch(e) {
+      throw new Error('Merge finished but output file could not be read: ' + errMsg(e));
+    }
+    var blob = new Blob([outputData.buffer], {type: mimeType});
+    var blobUrl = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = blobUrl; a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function(){URL.revokeObjectURL(blobUrl);}, 15000);
+
+    // Cleanup virtual FS
+    for (var k = 0; k < segFiles.length; k++) { try { await ffmpeg.deleteFile(segFiles[k]); } catch(e) {} }
+    if (!isFmp4) { try { await ffmpeg.deleteFile('concat.txt'); } catch(e) {} }
+    try { await ffmpeg.deleteFile(filename); } catch(e) {}
+
+    var sizeMB = (blob.size/1048576).toFixed(2);
+    addLog('Done! ' + filename + ' (' + sizeMB + ' MB)', 'ok');
+    setStatus('Done! ' + sizeMB + ' MB saved', 'done');
+    setBar(segments.length, segments.length);
+    setRunning(false);
+
+  } catch(e) {
+    if (!aborted) {
+      addLog('Error: ' + errMsg(e), 'err');
+      setStatus('Failed: ' + errMsg(e), 'err');
+    }
+    setRunning(false);
+  }
+}
+
+document.getElementById('urlInput').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') startDownload();
+});
+</script>
+</body>
+</html>
